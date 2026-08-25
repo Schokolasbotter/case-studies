@@ -134,7 +134,10 @@ It is a small system, and that is the point: four floats and a selection functio
 where fish are eating, resting, wandering and fleeing at different times for legible reasons,
 without any of it being scripted.
 
-![The player character with fish in the background](images/fish-in-action.gif)
+![Fish swimming, feeding and turning in the lake](images/fish-life.gif)
+
+*Recorded from the editor — the lake running unattended. Every turn, drift and feeding lunge is
+force and rotation applied to a Rigidbody; there is not a single animation clip in the scene.*
 
 ---
 
@@ -176,7 +179,11 @@ The grid is anchored to the water body: it begins at the surface and extends dow
 "inside the grid" and "inside the water" the same statement. A whole category of out-of-bounds bugs
 simply never existed.
 
-![Voxel grid from another angle, showing the shape of the lake bed](images/voxel-grid-2.png)
+![Animated fly-through of the voxel cost field](images/voxel-cost.gif)
+
+*Recorded from the editor — the cost field itself. Green is cheap open water; weight climbs through
+yellow into red as voxels approach terrain, with the deep red pocket marking the depression in the
+lake bed.*
 
 Cost is not binary. Voxels within three cells of an occupied one carry graded weight, so paths bend
 away from terrain rather than scraping along it.
@@ -195,8 +202,6 @@ The generator is exposed with in-editor visualisation and custom inspector contr
 to be tuned by people who were not me.
 
 ### A\*
-
-![Fish pathing during development](images/pathfinding-development.png)
 
 The first working version came together quickly and destroyed the framerate. With a full population
 requesting paths, the game hit **one to two frames per second**.
@@ -218,7 +223,9 @@ What fixed it:
 Paths are also **smoothed at follow time**: fish steer toward a node several ahead rather than
 tracking node to node, which removes the robotic corner-turning that grid pathing produces.
 
-![A fish and its path in engine](images/fish-path.png)
+![A fish following its computed path, with debug lines drawn](images/fish-path-anim.gif)
+
+*Recorded from the editor — a fish following a live path.*
 
 **On the AI assistance:** I wrote the first A\* implementation myself, and it was too slow. With the
 deadline closing, Joseph asked me to use ChatGPT to work through the optimisation. That stung my
