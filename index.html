@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="How I built the fish AI for The Lakelings at Derailed Arts - Laban-Effort movement, a utility layer over a state machine, and 3D navigation via a voxel grid and A*.">
+<meta name="author" content="Laurent Klein">
+<meta property="og:title" content="Fish AI for The Lakelings">
+<meta property="og:description" content="Gameplay/AI programming at Derailed Arts: Laban-Effort movement, utility AI over a state machine, and 3D navigation through a voxel grid.">
+<meta property="og:type" content="article">
+<meta property="og:image" content="images/player-view.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128031;</text></svg>">
+<title>Fish AI for The Lakelings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+:root{
+  --s0:#f4f7f5; --s1:#e9eeec; --s2:#dde5e3; --s3:#cfdad8;
+  --ink:#16211f; --ink-soft:#465755; --ink-faint:#74८a86; --ink-faint:#748a86;
+  --rule:#c3d0cd; --rule-soft:#d8e2e0;
+  --accent:#a8641f; --accent-bright:#c8862f;
+  --water:#256467;
+  --shadow:rgba(22,45,44,.10);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --s0:#0c1517; --s1:#101c1e; --s2:#142326; --s3:#192c2f;
+    --ink:#e7efed; --ink-soft:#a6b9b6; --ink-faint:#7b8f8c;
+    --rule:#26383b; --rule-soft:#1d2d30;
+    --accent:#e8ab53; --accent-bright:#f0bc72;
+    --water:#5fbdb9;
+    --shadow:rgba(0,0,0,.34);
+  }
+}
+:root[data-theme="dark"]{
+  --s0:#0c1517; --s1:#101c1e; --s2:#142326; --s3:#192c2f;
+  --ink:#e7efed; --ink-soft:#a6b9b6; --ink-faint:#7b8f8c;
+  --rule:#26383b; --rule-soft:#1d2d30;
+  --accent:#e8ab53; --accent-bright:#f0bc72;
+  --water:#5fbdb9;
+  --shadow:rgba(0,0,0,.34);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--s0); color:var(--ink);
+  font-family:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  font-size:18px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.col{max-width:68ch;margin:0 auto}
+
+h1,h2,h3{font-family:Fraunces,Georgia,serif;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.6rem,6.4vw,4.6rem);font-weight:600;line-height:1.02;letter-spacing:-.02em}
+h2{font-size:clamp(1.7rem,3.3vw,2.5rem);font-weight:600;line-height:1.12;letter-spacing:-.012em}
+h3{font-size:1.22rem;font-weight:600;line-height:1.28;margin-top:2.2rem}
+p{margin:0 0 1.15rem}
+a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+a:focus-visible,button:focus-visible{outline:2.5px solid var(--accent-bright);outline-offset:3px;border-radius:2px}
+strong{font-weight:600;color:var(--ink)}
+em{font-style:italic}
+
+.label{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:.68rem;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--ink-faint);font-weight:600;
+}
+
+/* ---- depth sections ---- */
+section{padding:clamp(3.4rem,7vw,6rem) 0;transition:background-color .3s}
+.d0{background:var(--s0)} .d1{background:var(--s1)}
+.d2{background:var(--s2)} .d3{background:var(--s3)}
+
+/* ---- voxel divider: opacity = the grid's cost gradient ---- */
+.voxels{display:flex;gap:4px;margin:0 auto 1.6rem;width:max-content}
+.voxels i{width:9px;height:9px;background:var(--water);display:block;border-radius:1px}
+.voxels i:nth-child(1){opacity:.14}.voxels i:nth-child(2){opacity:.28}
+.voxels i:nth-child(3){opacity:.46}.voxels i:nth-child(4){opacity:.7}
+.voxels i:nth-child(5){opacity:1;background:var(--accent)}
+.voxels i:nth-child(6){opacity:.7}.voxels i:nth-child(7){opacity:.46}
+.voxels i:nth-child(8){opacity:.28}.voxels i:nth-child(9){opacity:.14}
+
+/* ---- hero ---- */
+.hero{padding:clamp(3.2rem,8vw,6.5rem) 0 0}
+.eyebrow{display:flex;flex-wrap:wrap;gap:.55rem 1.1rem;align-items:center;margin-bottom:1.5rem}
+.eyebrow span{white-space:nowrap}
+.dot{width:4px;height:4px;border-radius:50%;background:var(--accent);flex:none}
+.lede{
+  font-size:clamp(1.12rem,2vw,1.36rem);color:var(--ink-soft);
+  max-width:60ch;margin-top:1.5rem;line-height:1.55;font-weight:300;
+}
+.lede b{color:var(--ink);font-weight:600}
+.credit-line{
+  margin-top:1.8rem;padding-top:1.1rem;border-top:1px solid var(--rule);
+  font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--ink-faint);
+}
+
+/* ---- figures ---- */
+figure{margin:2.4rem 0;}
+figure img{
+  width:100%;height:auto;display:block;border-radius:3px;
+  border:1px solid var(--rule);box-shadow:0 3px 22px var(--shadow);
+  background:var(--s1);
+}
+figcaption{
+  font-family:"JetBrains Mono",monospace;font-size:.73rem;line-height:1.55;
+  color:var(--ink-faint);margin-top:.7rem;padding-left:.9rem;
+  border-left:2px solid var(--accent);
+}
+.playing{
+  color:var(--accent);font-weight:600;
+  text-transform:uppercase;letter-spacing:.1em;font-size:.66rem;
+}
+.playing::before{
+  content:"";display:inline-block;width:0;height:0;vertical-align:.06em;
+  border-left:6px solid var(--accent);
+  border-top:4px solid transparent;border-bottom:4px solid transparent;
+  margin-right:.45rem;
+}
+.fig-wide{max-width:1000px;margin-inline:auto}
+.fig-pair{display:grid;gap:1.4rem;grid-template-columns:1fr}
+@media(min-width:820px){.fig-pair{grid-template-columns:1fr 1fr}}
+.fig-pair figure{margin:0}
+
+/* ---- glance panel ---- */
+.glance{
+  border:1px solid var(--rule);border-radius:4px;background:var(--s0);
+  padding:0;overflow:hidden;margin:0 auto;max-width:820px;
+}
+.glance dl{margin:0;display:grid;grid-template-columns:1fr}
+@media(min-width:700px){.glance dl{grid-template-columns:auto 1fr}}
+.glance dt{
+  font-family:"JetBrains Mono",monospace;font-size:.7rem;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-faint);font-weight:600;
+  padding:.85rem 1.3rem .2rem;border-top:1px solid var(--rule-soft);
+}
+.glance dd{margin:0;padding:0 1.3rem .85rem;color:var(--ink);font-size:.97rem}
+@media(min-width:700px){
+  .glance dt{padding:.9rem 1.3rem;border-right:1px solid var(--rule-soft);white-space:nowrap}
+  .glance dd{padding:.9rem 1.3rem;border-top:1px solid var(--rule-soft);display:flex;align-items:center}
+}
+.glance dt:first-of-type,.glance dl>dt:first-child{border-top:none}
+@media(min-width:700px){.glance dl>dt:first-child+dd{border-top:none}}
+
+/* ---- tables ---- */
+.tbl-scroll{overflow-x:auto;margin:1.8rem 0}
+table{border-collapse:collapse;width:100%;font-size:.94rem;min-width:460px}
+th,td{text-align:left;padding:.7rem .9rem;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+thead th{
+  font-family:"JetBrains Mono",monospace;font-size:.68rem;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-faint);border-bottom:1px solid var(--rule);
+}
+tbody tr:last-child td{border-bottom:none}
+td strong{color:var(--water)}
+
+/* ---- pull quote ---- */
+.pull{
+  margin:2.6rem auto;max-width:30ch;padding-left:1.5rem;
+  border-left:3px solid var(--accent);
+}
+.pull p{
+  font-family:Fraunces,Georgia,serif;font-size:clamp(1.3rem,2.6vw,1.72rem);
+  line-height:1.28;color:var(--ink);margin:0;font-weight:400;
+}
+@media(min-width:1080px){
+  .pull{float:right;width:30ch;margin:.4rem -190px 1.8rem 2.6rem}
+}
+
+/* ---- callout ---- */
+.note{
+  border:1px solid var(--rule);border-left:3px solid var(--water);
+  border-radius:3px;padding:1.15rem 1.35rem;margin:2rem 0;background:var(--s0);
+  font-size:.96rem;
+}
+.note p:last-child{margin-bottom:0}
+.note .label{display:block;margin-bottom:.5rem;color:var(--water)}
+
+/* ---- fix list ---- */
+ul.fixes{list-style:none;padding:0;margin:1.5rem 0;display:flex;flex-direction:column;gap:.85rem}
+ul.fixes li{padding-left:1.5rem;position:relative;font-size:.98rem}
+ul.fixes li::before{
+  content:"";position:absolute;left:0;top:.62em;width:8px;height:8px;
+  background:var(--accent);border-radius:1px;
+}
+ul.plain{padding-left:1.15rem;margin:1.3rem 0;display:flex;flex-direction:column;gap:.55rem}
+ul.plain li{padding-left:.25rem}
+ul.plain li::marker{color:var(--accent)}
+
+/* ---- outcome ---- */
+.outcome-stat{
+  display:flex;flex-wrap:wrap;gap:2.4rem;margin:2rem 0 0;
+  padding-top:1.6rem;border-top:1px solid var(--rule);
+}
+.outcome-stat div{flex:1;min-width:150px}
+.outcome-stat b{
+  display:block;font-family:Fraunces,Georgia,serif;font-size:1.85rem;
+  font-weight:600;color:var(--accent);line-height:1.1;
+}
+.outcome-stat span{font-size:.86rem;color:var(--ink-soft);display:block;margin-top:.2rem}
+
+footer{
+  padding:3rem 0 4rem;background:var(--s0);border-top:1px solid var(--rule);
+  font-size:.83rem;color:var(--ink-faint);
+}
+footer p{max-width:66ch;margin:0 auto}
+
+.reveal{opacity:0;transform:translateY(14px)}
+.reveal.in{opacity:1;transform:none;transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.3,1)}
+@media(prefers-reduced-motion:reduce){
+  .reveal,.reveal.in{opacity:1;transform:none;transition:none}
+  section{transition:none}
+}
+</style>
+</head>
+<body>
+
+
+<header class="hero d0">
+  <div class="wrap">
+    <div class="col">
+      <div class="eyebrow label">
+        <span>Derailed Arts</span><i class="dot"></i>
+        <span>Feb – Jun 2025</span><i class="dot"></i>
+        <span>Unity · C#</span><i class="dot"></i>
+        <span>Gameplay / AI Programmer</span>
+      </div>
+      <h1>Fish AI for<br><em style="font-style:normal;color:var(--accent)">The Lakelings</em></h1>
+      <p class="lede">
+        I was responsible for one thing at Derailed Arts, end to end: <b>the fish</b>. From an empty
+        Unity project to a playable demo shown at Develop Brighton — movement, senses,
+        decision-making, population control, and 3D navigation through a volume of water.
+      </p>
+      <p class="credit-line">My first professional games role, and my first credit on a game.</p>
+    </div>
+  </div>
+</header>
+
+<section class="d0" style="padding-top:2.6rem">
+  <div class="wrap">
+    <figure class="fig-wide reveal">
+      <img src="images/player-view.png" alt="First-person view of the player fishing on the lake, with fish visible beneath the surface">
+      <figcaption>The prototype. Everything below the waterline was my responsibility.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="d1">
+  <div class="wrap">
+    <div class="glance reveal">
+      <dl>
+        <dt>Studio</dt><dd>Derailed Arts — founded by Joseph Cunningham, previously Senior Game Designer at nDreams</dd>
+        <dt>Game</dt><dd><em>The Lakelings</em> — a cosy multiplayer fishing game</dd>
+        <dt>Role</dt><dd>Gameplay / AI Programmer · paid · ~5 months</dd>
+        <dt>Team</dt><dd>Founder/designer, two programmers, a technical producer, an AI advisor, contract artists</dd>
+        <dt>Stack</dt><dd>Unity, C#, GitHub (feature branches → <code>dev</code>), Miro as the living design doc, Discord</dd>
+        <dt>Owned</dt><dd>All fish behaviour in the wild — movement, sensing, AI, population, navigation</dd>
+        <dt>Outcome</dt><dd>Playable prototype demoed at Develop Brighton and Brilliant Indie Treasures</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="d1">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>The game</h2>
+    <p><em>The Lakelings</em> is a cosy fishing game where you catch fish, sell them, upgrade your gear
+    and unlock more of the lake. Its hook is what happens to the ones that get away: released or
+    escaped fish evolve into <strong>Nemefish</strong> — rarer, harder to catch, and able to <em>talk</em>.
+    A language model generates each Nemefish's personality from its history with the player, issues
+    quests in character, and lets them swim to other players' lakes carrying stories of past
+    encounters.</p>
+    <p>The prototype had to prove the atmosphere, the fishing loop and a first version of the Nemefish
+    system — originally for a Barclays investor event, and after that was cancelled, for Develop
+    Brighton.</p>
+    <p>My job was to make the lake feel alive enough that catching something from it mattered.</p>
+
+    <h3>What "the fish" actually meant</h3>
+    <p>Fish existed in two modes. <strong>Hooked</strong> — the arcade fishing minigame — belonged to
+    Josh, the other programmer. <strong>Free</strong> — everything a fish does when nobody is holding a
+    rod at it — was mine. That split covers more than it sounds like:</p>
+    <ul class="plain">
+      <li>how a fish <em>moves</em>, and how two breeds move differently</li>
+      <li>how it perceives bait, other fish and terrain</li>
+      <li>what it decides to do, and why</li>
+      <li>how many fish exist, of what kind, and where</li>
+      <li>how it crosses a lake without swimming through a sandbank</li>
+    </ul>
+  </div></div>
+</section>
+
+<section class="d2">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>Movement: theatre direction, translated into physics</h2>
+    <p>Joseph came from theatre production, and handed me a design vocabulary rather than a spec:
+    <strong>Laban Efforts</strong>, a system actors use to physicalise character. He wanted fish whose
+    personality was legible purely from how they moved.</p>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Effort</th><th>States</th><th>What I mapped it to</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Direction</strong></td><td>Direct / Indirect</td><td>straight line to target, or a slaloming path</td></tr>
+          <tr><td><strong>Weight</strong></td><td>Light / Strong</td><td>acceleration</td></tr>
+          <tr><td><strong>Speed</strong></td><td>Quick / Sustained</td><td>velocity</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Eight combinations, eight distinct movement personalities — before any per-fish tuning. On top
+    of that sits a <strong>variance percentage</strong> that nudges each individual's values off its
+    breed baseline, so fish of the same breed are recognisably related without being clones.</p>
+  </div>
+
+  <div class="col">
+    <figure class="reveal">
+      <img loading="lazy" decoding="async" src="images/swimming-function.png" alt="Diagram of the swimming function showing force vector accumulation">
+      <figcaption>The swimming function. Force accumulates from the active behaviour, the avoidance vector is folded in, then it commits through AddForce with orientation via AddTorque.</figcaption>
+    </figure>
+    <p>Mechanically it is deliberately simple: each fish is a Rigidbody that can only push itself
+    <strong>forward</strong>. Turning is rotation applied to the body, not a change of velocity.</p>
+    <p><strong>There are no animations.</strong> Every behaviour — surface feeding, resting, jumping,
+    circling — is physics and rotation only. Surface feeding turns the fish toward a random point near
+    the waterline, accelerates it gently upward, then fires a force <em>backwards</em> the moment it
+    arrives, so it reads as a fish snapping at an insect and darting away. Watching it move, you
+    assume an animator was involved. There wasn't one.</p>
+    <p>Behaviours run as coroutines, one at a time per fish, each signalling completion so the main
+    loop can assign the next target.</p>
+    <figure class="reveal">
+      <img loading="lazy" decoding="async" src="images/fish-inspector.png" alt="Unity inspector showing the fish behaviour configuration ScriptableObject">
+      <figcaption>Per-breed values live in ScriptableObject configuration files — tuning a breed's personality was a designer task, not a code change.</figcaption>
+    </figure>
+  </div></div>
+</section>
+
+<section class="d2">
+  <div class="wrap"><div class="col">
+    <h2>Senses: the Scanner</h2>
+    <p>Fish needed to notice things. The Scanner runs on a configurable frame interval rather than
+    every frame, and does three jobs in one pass:</p>
+    <ul class="fixes">
+      <li><strong>Sphere cast for the bobber</strong>, then checks whether it carries the correct bait.
+      Correct bait makes the fish a candidate for the <em>Attracted to Bobber</em> state; wrong bait
+      usually makes it flee — but with a small chance of interest anyway, so the player can still get
+      lucky.</li>
+      <li><strong>Rebuilds the list of nearby fish</strong>, which feeds the avoidance vector in the
+      movement function.</li>
+      <li><strong>Ray casts forward</strong> to detect terrain. A hit means the fish is heading into
+      geometry, so it resets state, takes a new target and requests a new path.</li>
+    </ul>
+    <p>That third one is a fail-safe. Autonomous agents in a closed volume will eventually find a way
+    to wedge themselves into something; the ray cast means they always get themselves back out.</p>
+  </div></div>
+</section>
+
+<section class="d2">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>Decision-making: a utility layer over a state machine</h2>
+    <figure class="reveal">
+      <img loading="lazy" decoding="async" src="images/lower-level-ai.png" alt="Abstract diagram of the lower-level AI state machine">
+      <figcaption>The lower-level AI. Every state follows the same shape: take a target, swim to it, perform an action on arrival.</figcaption>
+    </figure>
+    <p><strong>The lower layer</strong> is a finite state machine — <em>Eat</em>, <em>Rest</em>,
+    <em>Attracted to Bobber</em>, <em>Idle</em>. Idle jumps out of the water or swims a circle. Rest
+    goes to a nest habitat and bobs gently. Eat runs surface or underwater feeding depending on
+    context.</p>
+    <p><strong>The upper layer</strong> is <strong>Utility AI</strong> with four needs — Hunger, Energy,
+    Idle, Fear. Hunger climbs over time. Energy drains with movement, scaled by speed. Fear accumulates
+    near larger fish until the fish flees. Idle wins when nothing else is pressing. Each tick the
+    dominant utility sets the FSM state, and the actions the fish performs feed back into those
+    values.</p>
+    <p>It is a small system, and that is the point: four floats and a selection function produce a lake
+    where fish are eating, resting, wandering and fleeing at different times for legible reasons,
+    without any of it being scripted.</p>
+    <figure class="fig-wide reveal">
+      <img loading="lazy" decoding="async" src="images/fish-life.gif" alt="Animated capture of fish swimming through the lake, feeding and turning">
+      <figcaption><span class="playing">Recorded from the editor</span> — the lake running unattended. Every turn, drift and feeding lunge here is force and rotation applied to a Rigidbody; there is not a single animation clip in the scene.</figcaption>
+    </figure>
+  </div></div>
+</section>
+
+<section class="d2">
+  <div class="wrap"><div class="col">
+    <h2>Population management</h2>
+    <p>Designers needed to be able to say "this lake has this many of that fish" and have it be true.</p>
+    <p>The system is two-tier. Each <strong>waterbody</strong> tracks its own fish counts and holds
+    references to its habitats — fish query it for habitat positions when they change state. A
+    <strong>population manager</strong> sits above all waterbodies, owns the spawn and despawn logic,
+    checks counts every few frames, and issues spawn orders wherever a lake is under target.</p>
+    <p>Designers set exact targets per <strong>breed-and-size combination</strong>, per lake. Adding a
+    second lake meant attaching the waterbody script and registering it — no changes to the manager.</p>
+    <div class="note">
+      <span class="label">The tool that mattered most</span>
+      <p>The manager also carries a <strong>"fish always bite" toggle</strong>, which existed purely so
+      Josh could iterate on the fishing minigame without waiting for a fish to become interested. Small
+      tools like that turned out to matter more to the team's pace than anything elegant I wrote.</p>
+    </div>
+  </div></div>
+</section>
+
+<section class="d3">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>The hard part: navigating a lake in three dimensions</h2>
+    <p>Everything above worked, and the fish still swam into the beach.</p>
+    <p>The test level had a curved shoreline with habitats on opposite sides. Fish taking the direct
+    route ploughed into the sandbank — or out of the water entirely. Unity's NavMesh solves walking
+    across a <em>surface</em>; fish move through a <em>volume</em>.</p>
+    <h3>Voxel grid</h3>
+    <p>I voxelised the water. A generator script builds the grid <strong>in the editor</strong>, writes
+    it into a <strong>ScriptableObject</strong>, and is then disabled at runtime — so play mode reads
+    precomputed data and pays no build cost. Each voxel stores a position, an occupied flag and a
+    cost.</p>
+    <p>The grid is anchored to the water body: it begins at the surface and extends downward, which
+    makes "inside the grid" and "inside the water" the same statement. A whole category of
+    out-of-bounds bugs simply never existed.</p>
+  </div>
+
+  <figure class="fig-wide reveal">
+    <img loading="lazy" decoding="async" src="images/voxel-cost.gif" alt="Animated fly-through of the colour-coded voxel cost field over the lake bed">
+    <figcaption><span class="playing">Recorded from the editor</span> — the cost field itself. Green is cheap open water; weight climbs through yellow into red as voxels approach terrain, with the deep red pocket marking the depression in the lake bed. Cost is not binary: voxels within three cells of an occupied one carry graded weight, so paths bend away from geometry instead of scraping along it.</figcaption>
+  </figure>
+
+  <div class="fig-pair reveal" style="max-width:1000px;margin:2.4rem auto">
+    <figure>
+      <img loading="lazy" decoding="async" src="images/voxel-grid-1.png" alt="Colour-coded voxel grid rendered over the lake">
+      <figcaption>The same grid held still, seen from the shoreline.</figcaption>
+    </figure>
+    <figure>
+      <img loading="lazy" decoding="async" src="images/voxel-grid-inspector.png" alt="Unity inspector for the voxel grid generator">
+      <figcaption>The generator, exposed with in-editor visualisation and custom inspector controls — it was going to be tuned by people who were not me.</figcaption>
+    </figure>
+  </div>
+
+  <div class="wrap"><div class="col">
+    <div class="pull"><p>The pathfinder was never wrong. The cost function just didn't yet encode "fish look stupid at the surface."</p></div>
+    <p><strong>Then the fish started surfacing.</strong> The water surface was almost entirely
+    unoccupied, so it was the cheapest region in the grid — and A* correctly routed fish <em>up to the
+    top</em>, across, and back down. Technically optimal, visually absurd.</p>
+    <p>The fix was a deliberate extra penalty on the top row of voxels, so fish stay submerged unless
+    their target habitat is genuinely at the surface. It is my favourite bug from the project, because
+    nothing was broken — the search was doing exactly what I had told it to value.</p>
+  </div></div>
+</section>
+
+<section class="d3">
+  <div class="wrap"><div class="col">
+    <h2>A*, and the frame rate</h2>
+    <p>The first working version came together quickly and destroyed the framerate. With a full
+    population requesting paths, the game hit <strong>one to two frames per second</strong>.</p>
+    <p>What fixed it:</p>
+    <ul class="fixes">
+      <li><strong>Converted the search into a coroutine</strong> with a cap on steps per frame, so a
+      path spreads across frames instead of blocking one</li>
+      <li><strong>Step limiter with abandon-and-retry</strong> — a search that grows too expensive is
+      dropped and reattempted later from a new start position, rather than stalling the frame</li>
+      <li><strong>One instance at a time</strong>, so path requests serialise instead of stampeding</li>
+      <li><strong>Swim while computing</strong> — a fish heads toward its target's general direction
+      and adopts the real path once it arrives, making the wait invisible</li>
+      <li><strong>Tightened data types</strong> through the hot loop</li>
+      <li><strong>A toggleable debug layer</strong> reporting success/failure and calculation time per
+      path</li>
+    </ul>
+  </div>
+
+  <div class="fig-pair reveal" style="max-width:1000px;margin:2.4rem auto">
+    <figure>
+      <img loading="lazy" decoding="async" src="images/astar-debug.png" alt="A star algorithm debug lines drawn in the Unity scene view">
+      <figcaption>The debug layer. Being able to see every path and its cost is what made the optimisation tractable.</figcaption>
+    </figure>
+    <figure>
+      <img loading="lazy" decoding="async" src="images/fish-path-anim.gif" alt="Animated capture of a fish following its computed path with debug lines drawn">
+      <figcaption><span class="playing">Recorded from the editor</span> — a fish following a live path. Paths are smoothed at follow time: fish steer toward a node several ahead rather than tracking node to node, which removes the robotic corner-turning grid pathing produces.</figcaption>
+    </figure>
+  </div>
+
+  <div class="wrap"><div class="col">
+    <div class="note">
+      <span class="label">On the AI assistance</span>
+      <p>I wrote the first A* implementation myself, and it was too slow. With the deadline closing,
+      Joseph asked me to use ChatGPT to work through the optimisation. That stung my pride at the time,
+      and it was the right call — he had paid for two developers and a deadline, not for my ego. I
+      still had to work out which optimisations applied, implement them into an existing system and
+      verify each one; I can explain every change in that list and why it worked. The lesson I actually
+      took was about proportion: my discomfort was worth less than the demo.</p>
+    </div>
+
+    <h3>Fish avoiding each other</h3>
+    <p>The fish already sensed their neighbours, so collision avoidance borrowed from
+    <strong>Boids</strong> — an avoidance vector averaged across nearby fish, folded into the movement
+    force.</p>
+    <p>The first attempt failed in an interesting way: at high population, fish
+    <strong>settled into a static lattice</strong>, each perfectly avoiding its neighbours and none
+    making progress. Mutual avoidance had found an equilibrium. I weakened the avoidance strength and
+    added <strong>size filtering</strong> — fish only avoid individuals <em>larger</em> than themselves
+    — which broke the symmetry and got the lake moving again.</p>
+    <p>Schooling behaviour was designed, and cut at feature lock.</p>
+  </div></div>
+</section>
+
+<section class="d2">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>What went wrong</h2>
+    <h3>My first two weeks were thrown away</h3>
+    <p>I built a <code>CharacterController</code>-based fish; Josh had independently built a
+    physics-based one that was better and already integrated with his gameplay. Mine did not fit his
+    systems. We binned it, I adopted his base, and we split responsibilities explicitly — free
+    behaviour to me, hooked behaviour to him — with weekly meetings to keep it that way. Losing two
+    weeks to unclear ownership in a four-person team taught me to establish interfaces before writing
+    anything.</p>
+    <h3>I could not land Behaviour Designer Pro</h3>
+    <p>On advice from our AI consultant I prototyped the behaviour-tree package, and it went well in
+    isolation. Back-porting it into an established codebase was the problem: full integration needed
+    Josh to restructure significant parts of his code, and he was out of time. I laid out three options
+    for Joseph — full integration, a hybrid, or drop it — and recommended against the hybrid, because
+    the mess would outlive the demo. We dropped it. The lesson is not about the package; it is that a
+    foundational architecture choice has to be made early or not at all.</p>
+    <h3>I shipped one very large script</h3>
+    <p>All fish behaviour lived in a single well-commented, region-organised file that was still
+    genuinely hard to navigate. What I would build instead: ScriptableObject behaviours held in
+    per-state lists and selected at runtime — a smaller core, and a drag-and-drop overview of available
+    behaviours for designers.</p>
+  </div></div>
+</section>
+
+<section class="d1">
+  <div class="wrap"><div class="col">
+    <h2>How we worked</h2>
+    <p>No formal QA — we tested each other's systems. I would fish while testing my own fish; Josh
+    would harass the wildlife while testing his rod. Joseph reviewed weekly and gave detailed feedback,
+    and several systems went through multiple rounds because of it: the population manager went from
+    breeds-with-random-sizes, to controlled sizes, to exact breed-and-size targets.</p>
+    <p>Git with per-developer branches merged into <code>dev</code>. A Miro board served as the living
+    design document and status tracker — which worked, and also taught me that documentation rots when
+    nobody prunes it.</p>
+    <p>The hardest part was not technical. I worked remotely, alone, on my first professional project,
+    and spent a fair share of it convinced I was the weakest person in the room. The weekly-meeting
+    cadence was what helped: reporting progress out loud made it much harder to quietly spiral.</p>
+  </div></div>
+</section>
+
+<section class="d0">
+  <div class="wrap"><div class="col">
+    <div class="voxels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>Outcome</h2>
+    <p>The prototype shipped and was demoed at <strong>Develop Brighton</strong> and
+    <strong>Brilliant Indie Treasures</strong> — a lake of two fish breeds moving with distinguishable
+    personalities, making autonomous decisions, navigating around terrain, reacting to bait and fleeing
+    from bigger fish.</p>
+    <p>Standing in a room watching strangers fish in something I had spent five months on removed any
+    remaining doubt about the career.</p>
+    <div class="outcome-stat">
+      <div><b>2</b><span>public showcases</span></div>
+      <div><b>~5</b><span>months, paid</span></div>
+      <div><b>1&ndash;2</b><span>fps at worst, before the rescue</span></div>
+      <div><b>8</b><span>movement personalities</span></div>
+    </div>
+
+    <h3>What I would take into the next role</h3>
+    <ul class="plain">
+      <li>Establish system boundaries and interfaces <strong>before</strong> writing code, especially on a small team</li>
+      <li>Profile earlier — the A* collapse would have been far cheaper to fix before it was load-bearing</li>
+      <li>Foundational tooling decisions belong at the start of a project, or nowhere</li>
+      <li>Build the designer-facing switch even when it is ugly; on a deadline, velocity beats elegance</li>
+      <li>A cost function encodes intent, not just distance</li>
+    </ul>
+  </div></div>
+</section>
+
+<footer>
+  <div class="wrap"><div class="col">
+    <p>Written from my internship report submitted to Goldsmiths, University of London
+    (MSc Computer Games Programming). No source code is shown or shared, under NDA. Screenshots are
+    from builds publicly demonstrated by the studio.</p>
+  </div></div>
+</footer>
+
+<script>
+(function(){
+  var els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)||window.matchMedia('(prefers-reduced-motion:reduce)').matches){
+    els.forEach(function(e){e.classList.add('in')});return;
+  }
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){ if(en.isIntersecting){en.target.classList.add('in');io.unobserve(en.target);} });
+  },{rootMargin:'0px 0px -8% 0px'});
+  els.forEach(function(e){io.observe(e)});
+})();
+</script>
+
+</body>
+</html>

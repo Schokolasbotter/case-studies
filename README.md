@@ -13,7 +13,7 @@ and 3D underwater navigation via a voxel grid and A\*.
 
 The prototype was demoed at Develop Brighton and Brilliant Indie Treasures.
 
-**Read it as a web page:** https://claude.ai/code/artifact/b7212960-b154-4a27-95bb-36859c32b6ec
+**Read it as a web page:** https://schokolasbotter.github.io/case-studies/
 
 ---
 
